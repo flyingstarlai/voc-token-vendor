@@ -42,6 +42,8 @@ import {Copyright} from "@mui/icons-material";
 import {Divider, OutlinedInput} from "@mui/material";
 interface INetwork { [key: string]: { address: string}}
 
+import Appbar from '../components/Appbar'
+
 declare let window: any;
 
 const Home: NextPage = () => {
@@ -84,6 +86,7 @@ const Home: NextPage = () => {
 
       } else {
         console.log('etherum wallet not found')
+        setError('Etherum wallet not found')
         return;
       }
 
@@ -93,58 +96,11 @@ const Home: NextPage = () => {
       const { ethereum } = window;
 
       ethereum.on('chainChanged', handleChainChanged)
+      ethereum.on('accountsChanged', handleChainChanged)
 
       await switchEthereumChain();
 
-      let web3: Web3;
-      web3 = new Web3(ethereum);
-
-      const networkId = await web3.eth.net.getId()
-      const chainIds = [5777, 97] //80001
-      if(!chainIds.find(c => c === networkId)) {
-        setError(`Token not available in current network, please change network.`)
-        return;
-      }
-
-
-
-      await web3.eth.requestAccounts();
-
-      const acc = await web3.eth.getAccounts()
-
-      setAccount(acc[0])
-
-      ethereum.on('accountsChanged', handleChainChanged)
-
-      const tokenAddress = (Token.networks as INetwork )[networkId].address
-      const _tokenInstance = new web3.eth.Contract(
-          Token.abi as AbiItem[],
-          tokenAddress
-      ) as unknown as VOCToken;
-      setVocToken(_tokenInstance)
-
-      const res = await  _tokenInstance.getPastEvents('Transfer')
-      console.log(res)
-
-
-      const vendorAddress = (Vendor.networks as INetwork )[networkId].address
-      const _tokenSaleInstance = new web3.eth.Contract(
-          Vendor.abi as AbiItem[],
-          vendorAddress
-      ) as unknown as VOCVendor;
-      setVocVendor(_tokenSaleInstance);
-
-      const balance = await _tokenInstance.methods.balanceOf(acc[0]).call()
-      const vendorBalance = await _tokenInstance.methods.balanceOf(vendorAddress).call()
-
-      listenTokenTransfer(_tokenInstance, acc[0], vendorAddress)
-
-      setToken({ balance, vendorBalance })
-
-      setTokenAddress({
-        token: tokenAddress,
-        vendor:  vendorAddress
-      })
+      await preloadApp();
 
 
     } catch (e) {
@@ -153,6 +109,60 @@ const Home: NextPage = () => {
 
   }
 
+
+  async function preloadApp() {
+    setAccount('')
+    let web3: Web3;
+    const { ethereum } = window;
+    web3 = new Web3(ethereum);
+
+    const networkId = await web3.eth.net.getId()
+    const chainIds = [5777, 97] //80001
+    if(!chainIds.find(c => c === networkId)) {
+      console.log('network error')
+      setError(`Token not available in current network, please change network.`)
+      return;
+    }
+
+
+
+    await web3.eth.requestAccounts();
+
+    const acc = await web3.eth.getAccounts()
+
+    setAccount(acc[0])
+
+
+    const tokenAddress = (Token.networks as INetwork )[networkId].address
+    const _tokenInstance = new web3.eth.Contract(
+        Token.abi as AbiItem[],
+        tokenAddress
+    ) as unknown as VOCToken;
+    setVocToken(_tokenInstance)
+
+    const res = await  _tokenInstance.getPastEvents('Transfer')
+    console.log(res)
+
+
+    const vendorAddress = (Vendor.networks as INetwork )[networkId].address
+    const _tokenSaleInstance = new web3.eth.Contract(
+        Vendor.abi as AbiItem[],
+        vendorAddress
+    ) as unknown as VOCVendor;
+    setVocVendor(_tokenSaleInstance);
+
+    const balance = await _tokenInstance.methods.balanceOf(acc[0]).call()
+    const vendorBalance = await _tokenInstance.methods.balanceOf(vendorAddress).call()
+
+    listenTokenTransfer(_tokenInstance, acc[0], vendorAddress)
+
+    setToken({ balance, vendorBalance })
+
+    setTokenAddress({
+      token: tokenAddress,
+      vendor:  vendorAddress
+    })
+  }
   async  function switchEthereumChain() {
     try {
       await window.ethereum.request({
@@ -204,8 +214,9 @@ const Home: NextPage = () => {
 
 
 
-  const handleChainChanged = () => {
-    window.location.reload();
+  const handleChainChanged = async () => {
+    await preloadApp();
+   // window.location.reload();
   }
 
 
@@ -253,26 +264,21 @@ const Home: NextPage = () => {
 
 
   useEffect(() => {
-    connectWeb3().then(() => {
-      const ethereum = window.ethereum;
-      ethereum.on('accountsChanged', (accounts: string[]) => {
-        // Handle the new account, or lack thereof.
-        // "account" will always be an array, but it can be empty.
-        console.log('acc change', accounts)
-      });
-    })
+    connectWeb3().then(() => {})
 
     return () => {
       const eth = window.ethereum;
-      eth.removeListener('accountsChanged', handleChainChanged)
-      eth.removeListener('chainChanged', handleChainChanged)
+     if(eth) {
+       eth.removeListener('accountsChanged', handleChainChanged)
+       eth.removeListener('chainChanged', handleChainChanged)
+     }
     }
   }, [])
 
   const renderLoadingOrError = () =>
       <Box>
         <ListItem>
-          <ListItemText primary={error || 'loading network'} secondary="" />
+          <ListItemText primary={error}  />
         </ListItem>
       </Box>
 
@@ -283,18 +289,7 @@ const Home: NextPage = () => {
     }}>
       <Card sx={{ minWidth: 300 }}>
         <CardContent>
-          <ListItem>
-            <Stack spacing={2} direction="row">
-              <Avatar>
-                <BalanceIcon />
-              </Avatar>
-              <Typography variant="h4" component="h3" gutterBottom>
-                VoC Token
-              </Typography>
-            </Stack>
-          </ListItem>
 
-          <Divider />
           <ListItem>
             <ListItemText primary="Vendor Supply" secondary={Web3.utils.fromWei(token.vendorBalance)} />
           </ListItem>
@@ -396,17 +391,19 @@ const Home: NextPage = () => {
   }
 
   return (
-      <Container maxWidth="lg" sx={{
-        my: 4,
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center'}}>
-        {
-          checkRender()
-        }
+      <>
+        <Appbar account={account || 'Connet'} />
+        <br />
+        <Container maxWidth="lg" sx={{
 
-      </Container>
+        }}>
+
+          {
+            checkRender()
+          }
+
+        </Container>
+      </>
   )
 }
 
