@@ -157,7 +157,7 @@ const Home: NextPage = () => {
     try {
       await window.ethereum.request({
         method: 'wallet_switchEthereumChain',
-        params: [{ chainId: '0x13881' }],
+        params: [{ chainId: '0x61' }],
       });
     } catch (e: any) {
       if (e.code === 4902) {
