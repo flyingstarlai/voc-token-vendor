@@ -19,7 +19,7 @@ export default function MyApp(props: MyAppProps) {
     return (
         <CacheProvider value={emotionCache}>
             <Head>
-                <title>Change title in _app.tsx</title>
+                <title>VoC Token Vendor</title>
                 <meta name="viewport" content="initial-scale=1, width=device-width" />
             </Head>
             <ThemeProvider theme={theme}>
