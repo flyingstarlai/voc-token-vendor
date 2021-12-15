@@ -100,7 +100,7 @@ const Home: NextPage = () => {
       web3 = new Web3(ethereum);
 
       const networkId = await web3.eth.net.getId()
-      const chainIds = [5777, 97, 80001]
+      const chainIds = [5777, 97] //80001
       if(!chainIds.find(c => c === networkId)) {
         setError(`Token not available in current network, please change network.`)
         return;
