@@ -45,6 +45,9 @@ interface INetwork { [key: string]: { address: string}}
 declare let window: any;
 
 const Home: NextPage = () => {
+
+
+
   const [vocToken, setVocToken] = useState<VOCToken>()
   const [vocVendor, setVocVendor] = useState<VOCVendor>()
 
@@ -68,6 +71,7 @@ const Home: NextPage = () => {
 
   const [waiting, setWaiting] = useState(false)
 
+
   async function connectWeb3() {
     try {
       const provider = await detectEtherumProvider() as provider;
@@ -85,6 +89,7 @@ const Home: NextPage = () => {
 
 
 
+
       const { ethereum } = window;
 
       ethereum.on('chainChanged', handleChainChanged)
@@ -95,7 +100,7 @@ const Home: NextPage = () => {
       web3 = new Web3(ethereum);
 
       const networkId = await web3.eth.net.getId()
-      const chainIds = [5777, 97]
+      const chainIds = [5777, 97, 80001]
       if(!chainIds.find(c => c === networkId)) {
         setError(`Token not available in current network, please change network.`)
         return;
@@ -117,6 +122,9 @@ const Home: NextPage = () => {
           tokenAddress
       ) as unknown as VOCToken;
       setVocToken(_tokenInstance)
+
+      const res = await  _tokenInstance.getPastEvents('Transfer')
+      console.log(res)
 
 
       const vendorAddress = (Vendor.networks as INetwork )[networkId].address
@@ -149,11 +157,27 @@ const Home: NextPage = () => {
     try {
       await window.ethereum.request({
         method: 'wallet_switchEthereumChain',
-        params: [{ chainId: '0x61' }],
+        params: [{ chainId: '0x13881' }],
       });
     } catch (e: any) {
       if (e.code === 4902) {
         try {
+        //   await window.ethereum.request({
+        //     method: "wallet_addEthereumChain",
+        //     params: [
+        //       {
+        //         chainId: "0x13881",
+        //         rpcUrls: ["https://rpc-mumbai.maticvigil.com"],
+        //         chainName: "Polygon Testnet Mumbai",
+        //         nativeCurrency: {
+        //           name: "tMATIC",
+        //           symbol: "tMATIC", // 2-6 characters long
+        //           decimals: 18,
+        //         },
+        //         blockExplorerUrls: ["https://mumbai.polygonscan.com/"],
+        //       },
+        //     ],
+        //   });
           await window.ethereum.request({
             method: 'wallet_addEthereumChain',
             params: [
@@ -284,7 +308,6 @@ const Home: NextPage = () => {
             </ListItem>
           </Stack>
 
-
           <Typography sx={{ fontSize: 14, mb: 2 }} color="text.primary" gutterBottom>
             You can buy here
             or Send ether to Vendor address
@@ -307,7 +330,7 @@ const Home: NextPage = () => {
                   label="VoC Token"
               />
             </FormControl>
-            <LoadingButton loading={waiting} loadingPosition="end" variant="outlined" onClick={handleBuyToken}>
+            <LoadingButton loading={waiting} loadingPosition="end" endIcon={<AttachMoneyIcon/>} variant="outlined" onClick={handleBuyToken}>
               Buy VoC
             </LoadingButton>
           </Stack>
@@ -318,11 +341,13 @@ const Home: NextPage = () => {
         </CardActions>
       </Card>
     </Box>
+    <br />
     <Box sx={{
       backgroundColor: 'background.paper'
     }}>
-
-      <List sx={{ width: '100%', maxWidth: 360, backgroundColor: 'background.paper' }}>
+      <Card sx={{ minWidth: 300 }}>
+        <CardContent>
+      <List sx={{ width: '100%',  backgroundColor: 'background.paper' }}>
         <ListItem>
           <ListItemAvatar>
             <Avatar>
@@ -357,6 +382,8 @@ const Home: NextPage = () => {
           <ListItemText primary="Token Address" secondary={tokenAddress.token}  />
         </ListItem>
       </List>
+        </CardContent>
+      </Card>
     </Box>
   </>
 
