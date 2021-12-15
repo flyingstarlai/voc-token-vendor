@@ -1,71 +1,385 @@
-import type { NextPage } from 'next'
+import  { NextPage } from 'next'
 import Head from 'next/head'
 import Image from 'next/image'
+import Container from '@mui/material/Container';
+import Typography from '@mui/material/Typography';
+import Box from '@mui/material/Box';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import ListItemAvatar from '@mui/material/ListItemAvatar';
+import Avatar from '@mui/material/Avatar';
+import PaidIcon from '@mui/icons-material/Paid';
+import StorefrontIcon from '@mui/icons-material/Storefront';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
+import LinkIcon from '@mui/icons-material/Link';
+import Card from '@mui/material/Card';
+import CardActions from '@mui/material/CardActions';
+import CardContent from '@mui/material/CardContent';
+import Button from '@mui/material/Button';
+import TextField from '@mui/material/TextField';
+import Stack from '@mui/material/Stack';
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import BalanceIcon from '@mui/icons-material/Balance';
+import FormControl from '@mui/material/FormControl';
+import FormHelperText from '@mui/material/FormHelperText';
+import Input from '@mui/material/Input';
+import InputLabel from '@mui/material/InputLabel';
+import LoadingButton from '@mui/lab/LoadingButton';
+
+import detectEtherumProvider from "@metamask/detect-provider"
 import styles from '../styles/Home.module.css'
+import Web3 from 'web3'
+import { AbiItem } from 'web3-utils'
+import {ChangeEvent, useEffect, useState} from "react";
+import {provider} from "web3-core";
+import Token from '../abis/VOCToken.json'
+import Vendor from '../abis/VOCVendor.json'
+import { VOCToken  } from '../abis/types/VOCToken'
+import { VOCVendor  } from '../abis/types/VOCVendor'
+import {Copyright} from "@mui/icons-material";
+import {Divider, OutlinedInput} from "@mui/material";
+interface INetwork { [key: string]: { address: string}}
+
+declare let window: any;
 
 const Home: NextPage = () => {
+  const [vocToken, setVocToken] = useState<VOCToken>()
+  const [vocVendor, setVocVendor] = useState<VOCVendor>()
+
+  const [tokenAddress, setTokenAddress] = useState({
+    token: "",
+    vendor: ""
+  })
+
+  const [token, setToken] = useState({
+    balance: '0',
+    vendorBalance: '0'
+  })
+
+  const [account, setAccount] = useState<string>();
+  const [values, setValues] = useState<{ [key: string]: string}>({
+    customer: '',
+    amount: ''
+  })
+
+  const [error, setError] = useState("")
+
+  const [waiting, setWaiting] = useState(false)
+
+  async function connectWeb3() {
+    try {
+      const provider = await detectEtherumProvider() as provider;
+      if(provider) {
+
+        if (provider !== window.ethereum) {
+          console.error('Do you have multiple wallets installed?');
+          return;
+        }
+
+      } else {
+        console.log('etherum wallet not found')
+        return;
+      }
+
+
+
+      const { ethereum } = window;
+
+      ethereum.on('chainChanged', handleChainChanged)
+
+      await switchEthereumChain();
+
+      let web3: Web3;
+      web3 = new Web3(ethereum);
+
+      const networkId = await web3.eth.net.getId()
+      const chainIds = [5777, 97]
+      if(!chainIds.find(c => c === networkId)) {
+        setError(`Token not available in current network, please change network.`)
+        return;
+      }
+
+
+
+      await web3.eth.requestAccounts();
+
+      const acc = await web3.eth.getAccounts()
+
+      setAccount(acc[0])
+
+      ethereum.on('accountsChanged', handleChainChanged)
+
+      const tokenAddress = (Token.networks as INetwork )[networkId].address
+      const _tokenInstance = new web3.eth.Contract(
+          Token.abi as AbiItem[],
+          tokenAddress
+      ) as unknown as VOCToken;
+      setVocToken(_tokenInstance)
+
+
+      const vendorAddress = (Vendor.networks as INetwork )[networkId].address
+      const _tokenSaleInstance = new web3.eth.Contract(
+          Vendor.abi as AbiItem[],
+          vendorAddress
+      ) as unknown as VOCVendor;
+      setVocVendor(_tokenSaleInstance);
+
+      const balance = await _tokenInstance.methods.balanceOf(acc[0]).call()
+      const vendorBalance = await _tokenInstance.methods.balanceOf(vendorAddress).call()
+
+      listenTokenTransfer(_tokenInstance, acc[0], vendorAddress)
+
+      setToken({ balance, vendorBalance })
+
+      setTokenAddress({
+        token: tokenAddress,
+        vendor:  vendorAddress
+      })
+
+
+    } catch (e) {
+        console.log(e)
+    }
+
+  }
+
+  async  function switchEthereumChain() {
+    try {
+      await window.ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0x61' }],
+      });
+    } catch (e: any) {
+      if (e.code === 4902) {
+        try {
+          await window.ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [
+              {
+                chainId: '0x61',
+                chainName: 'Smart Chain - Testnet',
+                nativeCurrency: {
+                  name: 'Binance',
+                  symbol: 'BNB', // 2-6 characters long
+                  decimals: 18
+                },
+                blockExplorerUrls: [''],
+                rpcUrls: ['https://data-seed-prebsc-1-s1.binance.org:8545/'],
+              },
+            ],
+          });
+        } catch (addError) {
+          console.error(addError);
+        }
+      }
+      // console.error(e)
+    }
+  }
+
+
+
+  const handleChainChanged = () => {
+    window.location.reload();
+  }
+
+
+  const listenTokenTransfer = (instance: VOCToken, address: string, vendor: string) => {
+    instance.events.Transfer({ filter: { to: address } })
+      .on("data", async(eventData) => {
+        // console.log('EventData', eventData);
+        const balance = await instance.methods.balanceOf(address).call()
+        const vendorBalance = await instance.methods.balanceOf(vendor).call()
+        if(balance)   {
+          setWaiting(false)
+          setValues({ ...values, amount: ''})
+          setToken({ balance, vendorBalance })
+
+        }
+      })
+  }
+
+  function handleChange(e:  ChangeEvent<HTMLInputElement>) {
+    setValues({
+      ...values,
+      [e.target.name]: e.target.value
+    })
+  }
+
+
+
+  async function handleBuyToken() {
+    try {
+      const weiAmount = values['amount'];
+      if(!account) return;
+      if(!weiAmount) {
+        setValues({...values, error: 'true'})
+        return;
+      }
+      setValues({...values, error: ''})
+      setWaiting(true)
+      await vocVendor?.methods.buyTokens(account).send({ from: account, value: Web3.utils.toWei(weiAmount, "wei")});
+    } catch (err) {
+      setWaiting(false)
+      setValues({ ...values, amount: ''})
+    }
+
+  }
+
+
+  useEffect(() => {
+    connectWeb3().then(() => {
+      const ethereum = window.ethereum;
+      ethereum.on('accountsChanged', (accounts: string[]) => {
+        // Handle the new account, or lack thereof.
+        // "account" will always be an array, but it can be empty.
+        console.log('acc change', accounts)
+      });
+    })
+
+    return () => {
+      const eth = window.ethereum;
+      eth.removeListener('accountsChanged', handleChainChanged)
+      eth.removeListener('chainChanged', handleChainChanged)
+    }
+  }, [])
+
+  const renderLoadingOrError = () =>
+      <Box>
+        <ListItem>
+          <ListItemText primary={error || 'loading network'} secondary="" />
+        </ListItem>
+      </Box>
+
+  const renderContent = () => <>
+
+    <Box sx={{
+      backgroundColor: 'background.paper'
+    }}>
+      <Card sx={{ minWidth: 300 }}>
+        <CardContent>
+          <ListItem>
+            <Stack spacing={2} direction="row">
+              <Avatar>
+                <BalanceIcon />
+              </Avatar>
+              <Typography variant="h4" component="h3" gutterBottom>
+                VoC Token
+              </Typography>
+            </Stack>
+          </ListItem>
+
+          <Divider />
+          <ListItem>
+            <ListItemText primary="Vendor Supply" secondary={Web3.utils.fromWei(token.vendorBalance)} />
+          </ListItem>
+          <Divider />
+          <Stack spacing={2} direction="row">
+            <ListItem>
+              <ListItemText primary="My VoC Token" secondary={token.balance} />
+            </ListItem>
+            <ListItem>
+              <ListItemText primary="(12 Decimals)" secondary={Web3.utils.fromWei(token.balance)} />
+            </ListItem>
+          </Stack>
+
+
+          <Typography sx={{ fontSize: 14, mb: 2 }} color="text.primary" gutterBottom>
+            You can buy here
+            or Send ether to Vendor address
+          </Typography>
+
+          <Typography sx={{ fontSize: 14, mb: 2 }} color="text.primary" gutterBottom>
+            Send 1 wei for 1 voc token-bit
+          </Typography>
+          <Stack spacing={2} direction="column">
+            <FormControl>
+              <InputLabel htmlFor="component-outlined">Token bit</InputLabel>
+              <OutlinedInput
+                  required={true}
+                  error={values['error'] === 'true'}
+                  type='number'
+                  name='amount'
+                  id="component-outlined"
+                  value={values['amount']}
+                  onChange={handleChange}
+                  label="VoC Token"
+              />
+            </FormControl>
+            <LoadingButton loading={waiting} loadingPosition="end" variant="outlined" onClick={handleBuyToken}>
+              Buy VoC
+            </LoadingButton>
+          </Stack>
+
+        </CardContent>
+        <CardActions>
+          {/*<Button size="small">Learn More</Button>*/}
+        </CardActions>
+      </Card>
+    </Box>
+    <Box sx={{
+      backgroundColor: 'background.paper'
+    }}>
+
+      <List sx={{ width: '100%', maxWidth: 360, backgroundColor: 'background.paper' }}>
+        <ListItem>
+          <ListItemAvatar>
+            <Avatar>
+              <LinkIcon />
+            </Avatar>
+          </ListItemAvatar>
+          <ListItemText primary="Binance" secondary='Smart Chain - Testnet' />
+        </ListItem>
+        <Divider />
+        <ListItem>
+          <ListItemAvatar>
+            <Avatar>
+              <AccountBalanceWalletIcon />
+            </Avatar>
+          </ListItemAvatar>
+          <ListItemText primary="Active Wallet" secondary={account} />
+        </ListItem>
+        <ListItem>
+          <ListItemAvatar>
+            <Avatar>
+              <StorefrontIcon />
+            </Avatar>
+          </ListItemAvatar>
+          <ListItemText primary="Vendor Address" secondary={tokenAddress.vendor} />
+        </ListItem>
+        <ListItem>
+          <ListItemAvatar>
+            <Avatar>
+              <PaidIcon />
+            </Avatar>
+          </ListItemAvatar>
+          <ListItemText primary="Token Address" secondary={tokenAddress.token}  />
+        </ListItem>
+      </List>
+    </Box>
+  </>
+
+  const checkRender = () => {
+    if(!account || !vocToken || !vocVendor) {
+      return renderLoadingOrError()
+    }
+
+    return renderContent();
+  }
+
   return (
-    <div className={styles.container}>
-      <Head>
-        <title>Create Next App</title>
-        <meta name="description" content="Generated by create next app" />
-        <link rel="icon" href="/favicon.ico" />
-      </Head>
+      <Container maxWidth="lg" sx={{
+        my: 4,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center'}}>
+        {
+          checkRender()
+        }
 
-      <main className={styles.main}>
-        <h1 className={styles.title}>
-          Welcome to <a href="https://nextjs.org">Next.js!</a>
-        </h1>
-
-        <p className={styles.description}>
-          Get started by editing{' '}
-          <code className={styles.code}>pages/index.tsx</code>
-        </p>
-
-        <div className={styles.grid}>
-          <a href="https://nextjs.org/docs" className={styles.card}>
-            <h2>Documentation &rarr;</h2>
-            <p>Find in-depth information about Next.js features and API.</p>
-          </a>
-
-          <a href="https://nextjs.org/learn" className={styles.card}>
-            <h2>Learn &rarr;</h2>
-            <p>Learn about Next.js in an interactive course with quizzes!</p>
-          </a>
-
-          <a
-            href="https://github.com/vercel/next.js/tree/master/examples"
-            className={styles.card}
-          >
-            <h2>Examples &rarr;</h2>
-            <p>Discover and deploy boilerplate example Next.js projects.</p>
-          </a>
-
-          <a
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=default-template&utm_campaign=create-next-app"
-            className={styles.card}
-          >
-            <h2>Deploy &rarr;</h2>
-            <p>
-              Instantly deploy your Next.js site to a public URL with Vercel.
-            </p>
-          </a>
-        </div>
-      </main>
-
-      <footer className={styles.footer}>
-        <a
-          href="https://vercel.com?utm_source=create-next-app&utm_medium=default-template&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Powered by{' '}
-          <span className={styles.logo}>
-            <Image src="/vercel.svg" alt="Vercel Logo" width={72} height={16} />
-          </span>
-        </a>
-      </footer>
-    </div>
+      </Container>
   )
 }
 
