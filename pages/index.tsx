@@ -165,7 +165,7 @@ const Home: NextPage = () => {
                   symbol: 'BNB', // 2-6 characters long
                   decimals: 18
                 },
-                blockExplorerUrls: [''],
+                blockExplorerUrls: ['https://testnet.bscscan.com'],
                 rpcUrls: ['https://data-seed-prebsc-1-s1.binance.org:8545/'],
               },
             ],
