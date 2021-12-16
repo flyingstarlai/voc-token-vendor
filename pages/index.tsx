@@ -1,35 +1,8 @@
 import  { NextPage } from 'next'
-import Head from 'next/head'
-import Image from 'next/image'
-import Container from '@mui/material/Container';
-import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
-import List from '@mui/material/List';
-import ListItem from '@mui/material/ListItem';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
-import ListItemAvatar from '@mui/material/ListItemAvatar';
-import Avatar from '@mui/material/Avatar';
-import PaidIcon from '@mui/icons-material/Paid';
-import StorefrontIcon from '@mui/icons-material/Storefront';
-import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
-import LinkIcon from '@mui/icons-material/Link';
-import Card from '@mui/material/Card';
-import CardActions from '@mui/material/CardActions';
-import CardContent from '@mui/material/CardContent';
-import Button from '@mui/material/Button';
-import TextField from '@mui/material/TextField';
-import Stack from '@mui/material/Stack';
-import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
-import BalanceIcon from '@mui/icons-material/Balance';
-import FormControl from '@mui/material/FormControl';
-import FormHelperText from '@mui/material/FormHelperText';
-import Input from '@mui/material/Input';
-import InputLabel from '@mui/material/InputLabel';
-import LoadingButton from '@mui/lab/LoadingButton';
+import Grid from '@mui/material/Grid';
 
 import detectEtherumProvider from "@metamask/detect-provider"
-import styles from '../styles/Home.module.css'
 import Web3 from 'web3'
 import { AbiItem } from 'web3-utils'
 import {ChangeEvent, useEffect, useState} from "react";
@@ -38,22 +11,24 @@ import Token from '../abis/VOCToken.json'
 import Vendor from '../abis/VOCVendor.json'
 import { VOCToken  } from '../abis/types/VOCToken'
 import { VOCVendor  } from '../abis/types/VOCVendor'
-import {Copyright} from "@mui/icons-material";
-import {Divider, OutlinedInput} from "@mui/material";
-interface INetwork { [key: string]: { address: string}}
-
+import {Backdrop, CircularProgress} from "@mui/material";
 import Appbar from '../components/Appbar'
+import SwitchNetwork from '../components/SwitchNetwork'
+import ContractInfo from '../components/ContractInfo'
+import VendorShop from '../components/VendorShop'
+import Alert from "@mui/material/Alert";
+import * as React from "react";
 
 declare let window: any;
+interface INetwork { [key: string]: { address: string}}
 
 const Home: NextPage = () => {
 
-
-
+  const [web3, setWeb3] = useState<Web3>()
   const [vocToken, setVocToken] = useState<VOCToken>()
   const [vocVendor, setVocVendor] = useState<VOCVendor>()
 
-  const [tokenAddress, setTokenAddress] = useState({
+  const [contractAddress, setAddress] = useState({
     token: "",
     vendor: ""
   })
@@ -69,39 +44,52 @@ const Home: NextPage = () => {
     amount: ''
   })
 
-  const [error, setError] = useState("")
+  const [wrongNetwork, setWrongNetwork] = useState(false)
+  const [walletNotFound, setWalletNotFound] = useState(false)
+  const [walletUnlocked, setWalletUnlocked] = useState(false)
+  const [preLoading, setPreLoading] = useState(false)
 
-  const [waiting, setWaiting] = useState(false)
+  const [paymentInProcess, setPaymentInProcess] = useState(false)
 
 
   async function connectWeb3() {
     try {
+      // detecting provider
+      setPreLoading(true)
       const provider = await detectEtherumProvider() as provider;
       if(provider) {
 
         if (provider !== window.ethereum) {
-          console.error('Do you have multiple wallets installed?');
+          setPreLoading(false)
           return;
         }
 
       } else {
-        console.log('etherum wallet not found')
-        setError('Etherum wallet not found')
+        setWalletNotFound(true)
+        setPreLoading(false)
         return;
       }
 
+      setPreLoading(false)
 
+      // injecting network
+      const web3 = new Web3(window.ethereum);
+      setWeb3(web3)
 
-
+      // listening provider event
       const { ethereum } = window;
+      ethereum.on('chainChanged', () => handleChainChanged(web3))
+      ethereum.on('accountsChanged', () => handleChainChanged(web3))
 
-      ethereum.on('chainChanged', handleChainChanged)
-      ethereum.on('accountsChanged', handleChainChanged)
+      // checking current network
+      const chainId = await checkingNetwork(web3)
+      if(!chainId) return;
 
-      await switchEthereumChain();
+      // check wallet status
+      const acc = await checkingWallet(web3);
+      if(!acc) return;
 
-      await preloadApp();
-
+     await loadSmartContract(web3, chainId, acc);
 
     } catch (e) {
         console.log(e)
@@ -109,125 +97,87 @@ const Home: NextPage = () => {
 
   }
 
-
-  async function preloadApp() {
-    setAccount('')
-    let web3: Web3;
-    const { ethereum } = window;
-    web3 = new Web3(ethereum);
-
-    const networkId = await web3.eth.net.getId()
+  async function checkingNetwork(web3: Web3) {
+    const chainId = await web3.eth.net.getId()
     const chainIds = [5777, 97] //80001
-    if(!chainIds.find(c => c === networkId)) {
-      console.log('network error')
-      setError(`Token not available in current network, please change network.`)
-      return;
+    if(!chainIds.find(c => c === chainId)) {
+      setWrongNetwork(true)
+      return undefined;
     }
+    setWrongNetwork(false);
+    return chainId.toString();
+  }
 
+  async function checkingWallet(web3: Web3) {
+      const acc = await web3.eth.getAccounts()
+      console.log(acc)
+      if(acc.length < 1) {
+        setWalletUnlocked(true)
+        return undefined;
+      }
+      setWalletUnlocked(false)
+      setAccount(acc[0])
+      return acc[0]
+  }
 
+  async function loadSmartContract(web3: Web3, chainId: string, acc: string) {
 
-    await web3.eth.requestAccounts();
-
-    const acc = await web3.eth.getAccounts()
-
-    setAccount(acc[0])
-
-
-    const tokenAddress = (Token.networks as INetwork )[networkId].address
+    // load Token Contract
+    const tokenAddress = (Token.networks as INetwork )[chainId].address
     const _tokenInstance = new web3.eth.Contract(
         Token.abi as AbiItem[],
         tokenAddress
     ) as unknown as VOCToken;
     setVocToken(_tokenInstance)
 
-    const res = await  _tokenInstance.getPastEvents('Transfer')
-    console.log(res)
 
-
-    const vendorAddress = (Vendor.networks as INetwork )[networkId].address
+    // load VendorShop Contract
+    const vendorAddress = (Vendor.networks as INetwork )[chainId].address
     const _tokenSaleInstance = new web3.eth.Contract(
         Vendor.abi as AbiItem[],
         vendorAddress
     ) as unknown as VOCVendor;
     setVocVendor(_tokenSaleInstance);
 
-    const balance = await _tokenInstance.methods.balanceOf(acc[0]).call()
-    const vendorBalance = await _tokenInstance.methods.balanceOf(vendorAddress).call()
-
-    listenTokenTransfer(_tokenInstance, acc[0], vendorAddress)
-
-    setToken({ balance, vendorBalance })
-
-    setTokenAddress({
+    setAddress({
       token: tokenAddress,
       vendor:  vendorAddress
     })
-  }
-  async  function switchEthereumChain() {
-    try {
-      await window.ethereum.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: '0x61' }],
-      });
-    } catch (e: any) {
-      if (e.code === 4902) {
-        try {
-        //   await window.ethereum.request({
-        //     method: "wallet_addEthereumChain",
-        //     params: [
-        //       {
-        //         chainId: "0x13881",
-        //         rpcUrls: ["https://rpc-mumbai.maticvigil.com"],
-        //         chainName: "Polygon Testnet Mumbai",
-        //         nativeCurrency: {
-        //           name: "tMATIC",
-        //           symbol: "tMATIC", // 2-6 characters long
-        //           decimals: 18,
-        //         },
-        //         blockExplorerUrls: ["https://mumbai.polygonscan.com/"],
-        //       },
-        //     ],
-        //   });
-          await window.ethereum.request({
-            method: 'wallet_addEthereumChain',
-            params: [
-              {
-                chainId: '0x61',
-                chainName: 'Smart Chain - Testnet',
-                nativeCurrency: {
-                  name: 'Binance',
-                  symbol: 'BNB', // 2-6 characters long
-                  decimals: 18
-                },
-                blockExplorerUrls: ['https://testnet.bscscan.com'],
-                rpcUrls: ['https://data-seed-prebsc-1-s1.binance.org:8545/'],
-              },
-            ],
-          });
-        } catch (addError) {
-          console.error(addError);
-        }
-      }
-      // console.error(e)
-    }
+
+    // listen contract events
+    listenTokenTransfer(_tokenInstance, acc, vendorAddress)
+
+
+    // load balance
+    const balance = await _tokenInstance.methods.balanceOf(acc).call()
+    const vendorBalance = await _tokenInstance.methods.balanceOf(vendorAddress).call()
+
+    setToken({ balance, vendorBalance })
+
+
   }
 
 
 
-  const handleChainChanged = async () => {
-    await preloadApp();
-   // window.location.reload();
+  const handleChainChanged = async (web3: Web3) => {
+
+    const chainId = await checkingNetwork(web3)
+    if(!chainId) return;
+
+    const acc = await checkingWallet(web3);
+    if(!acc) return;
+
+    await loadSmartContract(web3, chainId, acc)
   }
 
 
   const listenTokenTransfer = (instance: VOCToken, address: string, vendor: string) => {
     instance.events.Transfer({ filter: { to: address } })
-      .on("data", async(eventData) => {
-        // console.log('EventData', eventData);
+      .on("data", async() => {
         const balance = await instance.methods.balanceOf(address).call()
         const vendorBalance = await instance.methods.balanceOf(vendor).call()
         if(balance)   {
-          setWaiting(false)
+          setPaymentInProcess(false)
           setValues({ ...values, amount: ''})
           setToken({ balance, vendorBalance })
 
@@ -244,20 +194,13 @@ const Home: NextPage = () => {
 
 
 
-  async function handleBuyToken() {
+  async function handleBuyToken(weiAmount: string) {
     try {
-      const weiAmount = values['amount'];
-      if(!account) return;
-      if(!weiAmount) {
-        setValues({...values, error: 'true'})
-        return;
-      }
-      setValues({...values, error: ''})
-      setWaiting(true)
+       if(!account) return;
+       setPaymentInProcess(true)
       await vocVendor?.methods.buyTokens(account).send({ from: account, value: Web3.utils.toWei(weiAmount, "wei")});
     } catch (err) {
-      setWaiting(false)
-      setValues({ ...values, amount: ''})
+      setPaymentInProcess(false)
     }
 
   }
@@ -273,137 +216,51 @@ const Home: NextPage = () => {
        eth.removeListener('chainChanged', handleChainChanged)
      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const renderLoadingOrError = () =>
-      <Box>
-        <ListItem>
-          <ListItemText primary={error}  />
-        </ListItem>
-      </Box>
 
-  const renderContent = () => <>
 
-    <Box sx={{
-      backgroundColor: 'background.paper'
-    }}>
-      <Card sx={{ minWidth: 300 }}>
-        <CardContent>
-
-          <ListItem>
-            <ListItemText primary="Vendor Supply" secondary={Web3.utils.fromWei(token.vendorBalance)} />
-          </ListItem>
-          <Divider />
-          <Stack spacing={2} direction="row">
-            <ListItem>
-              <ListItemText primary="My VoC Token" secondary={token.balance} />
-            </ListItem>
-            <ListItem>
-              <ListItemText primary="(12 Decimals)" secondary={Web3.utils.fromWei(token.balance)} />
-            </ListItem>
-          </Stack>
-
-          <Typography sx={{ fontSize: 14, mb: 2 }} color="text.primary" gutterBottom>
-            You can buy here
-            or Send ether to Vendor address
-          </Typography>
-
-          <Typography sx={{ fontSize: 14, mb: 2 }} color="text.primary" gutterBottom>
-            Send 1 wei for 1 voc token-bit
-          </Typography>
-          <Stack spacing={2} direction="column">
-            <FormControl>
-              <InputLabel htmlFor="component-outlined">Token bit</InputLabel>
-              <OutlinedInput
-                  required={true}
-                  error={values['error'] === 'true'}
-                  type='number'
-                  name='amount'
-                  id="component-outlined"
-                  value={values['amount']}
-                  onChange={handleChange}
-                  label="VoC Token"
-              />
-            </FormControl>
-            <LoadingButton loading={waiting} loadingPosition="end" endIcon={<AttachMoneyIcon/>} variant="outlined" onClick={handleBuyToken}>
-              Buy VoC
-            </LoadingButton>
-          </Stack>
-
-        </CardContent>
-        <CardActions>
-          {/*<Button size="small">Learn More</Button>*/}
-        </CardActions>
-      </Card>
-    </Box>
-    <br />
-    <Box sx={{
-      backgroundColor: 'background.paper'
-    }}>
-      <Card sx={{ minWidth: 300 }}>
-        <CardContent>
-      <List sx={{ width: '100%',  backgroundColor: 'background.paper' }}>
-        <ListItem>
-          <ListItemAvatar>
-            <Avatar>
-              <LinkIcon />
-            </Avatar>
-          </ListItemAvatar>
-          <ListItemText primary="Binance" secondary='Smart Chain - Testnet' />
-        </ListItem>
-        <Divider />
-        <ListItem>
-          <ListItemAvatar>
-            <Avatar>
-              <AccountBalanceWalletIcon />
-            </Avatar>
-          </ListItemAvatar>
-          <ListItemText primary="Active Wallet" secondary={account} />
-        </ListItem>
-        <ListItem>
-          <ListItemAvatar>
-            <Avatar>
-              <StorefrontIcon />
-            </Avatar>
-          </ListItemAvatar>
-          <ListItemText primary="Vendor Address" secondary={tokenAddress.vendor} />
-        </ListItem>
-        <ListItem>
-          <ListItemAvatar>
-            <Avatar>
-              <PaidIcon />
-            </Avatar>
-          </ListItemAvatar>
-          <ListItemText primary="Token Address" secondary={tokenAddress.token}  />
-        </ListItem>
-      </List>
-        </CardContent>
-      </Card>
-    </Box>
-  </>
-
-  const checkRender = () => {
-    if(!account || !vocToken || !vocVendor) {
-      return renderLoadingOrError()
-    }
-
-    return renderContent();
-  }
 
   return (
-      <>
-        <Appbar account={account || 'Connet'} />
-        <br />
-        <Container maxWidth="lg" sx={{
-
-        }}>
-
-          {
-            checkRender()
-          }
-
-        </Container>
-      </>
+      <Box sx={{ flexGrow: 1 }}>
+        <Box>
+          <Appbar
+              web3={web3}
+              onUnlockWallet={(acc) => setAccount(acc)}
+              account={account || 'Unlock'}
+          />
+        </Box>
+        <Box>
+          <Backdrop
+              sx={{ color: '#fff', zIndex: (theme) => theme.zIndex.drawer + 1 }}
+              open={preLoading}
+          >
+            <CircularProgress color="inherit" />
+          </Backdrop>
+          {wrongNetwork && <SwitchNetwork />}
+          {walletNotFound && <Alert severity="warning">Please Install Metamask</Alert>}
+          {walletUnlocked && <Alert severity="warning">Please Unlock Your Wallet</Alert>}
+        </Box>
+        <Grid
+            sx={{ mt: 2 }}
+            container spacing={2}
+            direction="column"
+            justifyContent="center"
+            alignItems="center">
+          <Grid item>
+            <VendorShop
+                myBalance={!wrongNetwork ? token.balance : '0'}
+                vendorBalance={!wrongNetwork ? token.vendorBalance : '0'}
+                submitted={paymentInProcess}
+                onBuyToken={ (amount) => handleBuyToken(amount)}
+            />
+          </Grid>
+          <Grid item>
+            <ContractInfo token={contractAddress.token} vendor={contractAddress.vendor} />
+          </Grid>
+        </Grid>
+      </Box>
   )
 }
 
