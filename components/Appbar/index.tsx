@@ -32,8 +32,7 @@ export default function AppbarIndex(props: MyAppProps) {
         if(accounts) props.onUnlockWallet(accounts[0])
     }
     return (
-        <Box sx={{ flexGrow: 1 }}>
-            <AppBar position="static">
+            <AppBar  position="absolute">
                 <Toolbar>
                     <IconButton
                         size="large"
@@ -59,9 +58,7 @@ export default function AppbarIndex(props: MyAppProps) {
                         </>
                     }
 
-
                 </Toolbar>
             </AppBar>
-        </Box>
     );
 }

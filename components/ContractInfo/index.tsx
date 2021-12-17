@@ -23,12 +23,8 @@ interface MyAppProps {
 
 export default function ContractInfo(props: MyAppProps) {
     return (
-        <Box sx={{
-            backgroundColor: 'background.paper'
-        }}>
-            <Card sx={{ minWidth: 300 }}>
-                <CardContent>
-                    <List sx={{ width: '100%',  backgroundColor: 'background.paper' }}>
+        <React.Fragment>
+                    <List>
                         <ListItem>
                             <ListItemAvatar>
                                 <Avatar>
@@ -54,8 +50,6 @@ export default function ContractInfo(props: MyAppProps) {
                             <ListItemText primary="Token Address" secondary={props.token}  />
                         </ListItem>
                     </List>
-                </CardContent>
-            </Card>
-        </Box>
+        </React.Fragment>
     );
 }
